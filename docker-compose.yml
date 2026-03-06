@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # NestJS 后端 API & WebSocket 服务
+  nest-api:
+    build: .
+    container_name: care_backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=mysql://root:care_pwd_2024@mysql-db:3306/care_db
+      - REDIS_URL=redis://redis-cache:6379
+      - JWT_SECRET=your_super_secret_key_for_jwt
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+
+  # MySQL 8.0 数据库
+  mysql-db:
+    image: mysql:8.0
+    container_name: care_mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: care_pwd_2024
+      MYSQL_DATABASE: care_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存服务
+  redis-cache:
+    image: redis:alpine
+    container_name: care_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+  redis_data:

@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// 守护端用户表
+model User {
+  id        String         @id @default(uuid())
+  phone     String         @unique
+  password  String         // 需使用 bcrypt 进行 hash 处理
+  name      String?
+  createdAt DateTime       @default(now())
+  families  FamilyMember[]
+}
+
+// 老人设备端表
+model ElderDevice {
+  id          String         @id @default(uuid())
+  deviceUuid  String         @unique // 安卓设备的唯一硬件标识
+  familyId    String?
+  nickname    String         @default("老人")
+  battery     Int            @default(100)
+  lastOnline  DateTime       @default(now())
+  createdAt   DateTime       @default(now())
+  
+  family      Family?        @relation(fields: [familyId], references: [id])
+  locations   LocationTrack[]
+  config      RemoteConfig?
+}
+
+// 家庭域表 (核心业务边界)
+model Family {
+  id        String         @id @default(uuid())
+  createdAt DateTime       @default(now())
+  members   FamilyMember[]
+  devices   ElderDevice[]
+}
+
+// 守护者与家庭的关联表 (多对多)
+model FamilyMember {
+  userId   String
+  familyId String
+  role     String         @default("GUARDIAN") // 权限角色划分
+  user     User           @relation(fields: [userId], references: [id])
+  family   Family         @relation(fields: [familyId], references: [id])
+  
+  @@id([userId, familyId])
+}
+
+// 历史轨迹表
+model LocationTrack {
+  id        String         @id @default(uuid())
+  deviceId  String
+  lat       Float
+  lng       Float
+  timestamp DateTime       @default(now())
+  device    ElderDevice    @relation(fields: [deviceId], references: [id])
+}
+
+// 远程配置表
+model RemoteConfig {
+  id               String      @id @default(uuid())
+  deviceId         String      @unique
+  volume           Int         @default(50)
+  brightness       Int         @default(50)
+  medicineReminder Json?       // 格式: [{"time": "08:00", "text": "吃降压药"}]
+  allowedApps      Json?       // 格式: ["com.tencent.mm", "com.android.phone"]
+  device           ElderDevice @relation(fields: [deviceId], references: [id])
+}
