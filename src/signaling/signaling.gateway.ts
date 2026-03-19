@@ -108,11 +108,25 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     await this.redisService.hset(key, 'netType', netType ?? '');
     await this.redisService.expire(key, 60);
 
-    // 同步更新 DB 的 battery / lastOnline，设备不存在则自动创建
+    const membership = await this.prisma.familyMember.findFirst({
+      where: { userId: client.userId, role: 'ELDER' },
+      select: { familyId: true },
+    });
+
+    // 同步更新 DB 的 battery / lastOnline，若老人账号已有 family，则自动补齐 familyId
     await this.prisma.elderDevice.upsert({
       where: { deviceUuid },
-      update: { battery, lastOnline: new Date() },
-      create: { deviceUuid, battery, lastOnline: new Date() },
+      update: {
+        battery,
+        lastOnline: new Date(),
+        ...(membership?.familyId ? { familyId: membership.familyId } : {}),
+      },
+      create: {
+        deviceUuid,
+        battery,
+        lastOnline: new Date(),
+        ...(membership?.familyId ? { familyId: membership.familyId } : {}),
+      },
     });
 
     return { event: 'heartbeat_ack', data: { ok: true } };

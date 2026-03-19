@@ -12,8 +12,15 @@ model User {
   phone     String         @unique
   password  String         // 需使用 bcrypt 进行 hash 处理
   name      String?
+  role      UserRole       @default(GUARDIAN)
+  deviceId  String?        // 最近登录的设备 ID
   createdAt DateTime       @default(now())
   families  FamilyMember[]
+}
+
+enum UserRole {
+  GUARDIAN
+  ELDER
 }
 
 // 老人设备端表

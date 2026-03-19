@@ -1,0 +1,169 @@
+{
+  "connection": {
+    "url": "http://localhost:3000",
+    "namespace": "/care",
+    "auth": {
+      "description": "连接时在 auth 字段传入 JWT token",
+      "example": {
+        "auth": {
+          "token": "<登录接口返回的 access_token>"
+        }
+      }
+    },
+    "note": "连接成功后服务端自动将客户端加入 family_{familyId} 房间"
+  },
+
+  "client_to_server": {
+    "heartbeat": {
+      "description": "老人端定期上报设备状态（建议每 30s 发一次），服务端写入 Redis 并续期 60s",
+      "payload": {
+        "battery": 85,
+        "netType": "WIFI",
+        "deviceUuid": "android-hardware-uuid"
+      },
+      "ack": {
+        "event": "heartbeat_ack",
+        "data": { "ok": true }
+      }
+    },
+
+    "sos_trigger": {
+      "description": "老人端触发 SOS 报警，服务端广播给家庭房间所有守护端（30s 防误触锁）",
+      "payload": {
+        "lat": 39.9042,
+        "lng": 116.4074,
+        "battery": 20,
+        "deviceUuid": "android-hardware-uuid"
+      }
+    },
+
+    "call_guardian": {
+      "description": "老人主动呼叫守护端",
+      "payload": {
+        "deviceId": "elder-device-uuid"
+      }
+    },
+
+    "request_assist": {
+      "description": "守护端发起协助请求，定向发给老人端",
+      "payload": {
+        "guardianId": "guardian-user-uuid",
+        "name": "守护者A",
+        "targetSocketId": "<老人端的 socketId>"
+      }
+    },
+
+    "assist_reply": {
+      "description": "老人端回复守护端的协助请求",
+      "payload": {
+        "accept": true,
+        "targetSocketId": "<守护端的 socketId>"
+      }
+    },
+
+    "webrtc_offer": {
+      "description": "WebRTC 发起方发送 offer，按 targetId 定向转发",
+      "payload": {
+        "targetId": "<对方的 socketId>",
+        "sdp": "<SDP string>"
+      }
+    },
+
+    "webrtc_answer": {
+      "description": "WebRTC 接收方回复 answer",
+      "payload": {
+        "targetId": "<对方的 socketId>",
+        "sdp": "<SDP string>"
+      }
+    },
+
+    "webrtc_ice": {
+      "description": "ICE candidate 交换",
+      "payload": {
+        "targetId": "<对方的 socketId>",
+        "candidate": "<ICE candidate object>"
+      }
+    },
+
+    "call_end": {
+      "description": "挂断通话",
+      "payload": {
+        "targetId": "<对方的 socketId>",
+        "reason": "hangup_by_user"
+      }
+    },
+
+    "remote_command": {
+      "description": "守护端发送手势指令给老人端",
+      "payload": {
+        "targetSocketId": "<老人端的 socketId>",
+        "action": "CLICK",
+        "params": { "x": 100, "y": 200 }
+      },
+      "action_values": ["CLICK", "SCROLL", "TEXT"]
+    }
+  },
+
+  "server_to_client": {
+    "bind_success": {
+      "description": "绑定成功后服务端定向推送给老人端，老人端收到后跳转首页",
+      "payload": {
+        "familyId": "family-uuid"
+      }
+    },
+
+    "sos_trigger": {
+      "description": "服务端广播给守护端，守护端弹出全屏报警页",
+      "payload": {
+        "lat": 39.9042,
+        "lng": 116.4074,
+        "battery": 20,
+        "deviceUuid": "android-hardware-uuid"
+      }
+    },
+
+    "call_guardian": {
+      "description": "转发给守护端，守护端弹出来电页",
+      "payload": {
+        "deviceId": "elder-device-uuid",
+        "fromSocketId": "<老人端的 socketId>"
+      }
+    },
+
+    "request_assist": {
+      "description": "转发给老人端，老人端弹出同意/拒绝弹窗",
+      "payload": {
+        "guardianId": "guardian-user-uuid",
+        "name": "守护者A"
+      }
+    },
+
+    "assist_reply": {
+      "description": "转发给守护端",
+      "payload": {
+        "accept": true
+      }
+    },
+
+    "webrtc_offer": { "payload": { "targetId": "...", "sdp": "..." } },
+    "webrtc_answer": { "payload": { "targetId": "...", "sdp": "..." } },
+    "webrtc_ice": { "payload": { "targetId": "...", "candidate": "..." } },
+    "call_end": { "payload": { "targetId": "...", "reason": "hangup_by_user" } },
+
+    "remote_command": {
+      "description": "转发给老人端执行",
+      "payload": {
+        "action": "CLICK",
+        "params": { "x": 100, "y": 200 }
+      }
+    },
+
+    "sync_config": {
+      "description": "守护端更新配置后服务端下发给老人端（T4 实现后生效）",
+      "payload": {
+        "volume": 80,
+        "brightness": 60
+      }
+    }
+  }
+}
