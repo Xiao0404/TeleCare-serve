@@ -3,17 +3,172 @@ import { UserRole } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { UnbindFamilyDto } from './dto/unbind-family.dto';
+import { SignalingGateway } from '../signaling/signaling.gateway';
+import { GetRemoteConfigDto } from './dto/get-remote-config.dto';
+import { UpdateRemoteConfigDto } from './dto/update-remote-config.dto';
 
 @Injectable()
 export class FamilyService {
   constructor(
     private prisma: PrismaService,
     private redisService: RedisService,
+    private signalingGateway: SignalingGateway,
   ) {}
+
+  private async resolveGuardianTargetDevice(userId: string, elderId?: string) {
+    const myFamilies = await this.prisma.familyMember.findMany({
+      where: { userId, role: UserRole.GUARDIAN },
+      select: { familyId: true },
+    });
+
+    const familyIds = myFamilies.map((item) => item.familyId);
+    if (familyIds.length === 0) {
+      throw new ForbiddenException('当前账号还没有绑定老人');
+    }
+
+    const elderMembership = await this.prisma.familyMember.findFirst({
+      where: {
+        familyId: { in: familyIds },
+        role: UserRole.ELDER,
+        ...(elderId ? { userId: elderId } : {}),
+      },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!elderMembership) {
+      throw new BadRequestException('未找到对应的老人账号');
+    }
+
+    const device = await this.prisma.elderDevice.findFirst({
+      where: { familyId: elderMembership.familyId },
+      include: { config: true },
+      orderBy: { lastOnline: 'desc' },
+    });
+
+    if (!device) {
+      throw new BadRequestException('当前老人账号还没有可用设备');
+    }
+
+    const status = await this.redisService.hgetall(`device_status:${device.deviceUuid}`);
+    const socketId = status?.socketId?.trim?.() || null;
+
+    return {
+      elderMembership,
+      device,
+      socketId,
+    };
+  }
+
+  private normalizeReminderTimes(input?: unknown): string[] {
+    if (!Array.isArray(input)) {
+      return [];
+    }
+
+    return input
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  async getRemoteConfig(
+    requester: { userId: string; role: UserRole },
+    query: GetRemoteConfigDto,
+  ) {
+    if (requester.role !== UserRole.GUARDIAN) {
+      throw new ForbiddenException('只有守护端可以读取远程配置');
+    }
+
+    const { elderMembership, device, socketId } = await this.resolveGuardianTargetDevice(
+      requester.userId,
+      query.elderId,
+    );
+
+    const reminderTimes = this.normalizeReminderTimes(device.config?.medicineReminder);
+    const allowedApps = this.normalizeReminderTimes(device.config?.allowedApps);
+
+    return {
+      success: true,
+      data: {
+        elderId: elderMembership.userId,
+        elderName: elderMembership.user?.name || device.nickname || '家人',
+        deviceId: device.id,
+        deviceUuid: device.deviceUuid,
+        online: Boolean(socketId),
+        config: {
+          volume: device.config?.volume ?? 50,
+          brightness: device.config?.brightness ?? 50,
+          medicineReminderTimes: reminderTimes,
+          medicineReminderEnabled: reminderTimes.length > 0,
+          allowedApps,
+        },
+      },
+    };
+  }
+
+  async updateRemoteConfig(
+    requester: { userId: string; role: UserRole },
+    dto: UpdateRemoteConfigDto,
+  ) {
+    if (requester.role !== UserRole.GUARDIAN) {
+      throw new ForbiddenException('只有守护端可以更新远程配置');
+    }
+
+    const { elderMembership, device, socketId } = await this.resolveGuardianTargetDevice(
+      requester.userId,
+      dto.elderId,
+    );
+
+    const medicineReminderTimes = this.normalizeReminderTimes(dto.medicineReminderTimes);
+    const nextAllowedApps =
+      dto.allowedApps !== undefined
+        ? this.normalizeReminderTimes(dto.allowedApps)
+        : this.normalizeReminderTimes(device.config?.allowedApps);
+
+    const saved = await this.prisma.remoteConfig.upsert({
+      where: { deviceId: device.id },
+      create: {
+        deviceId: device.id,
+        volume: dto.volume,
+        brightness: dto.brightness,
+        medicineReminder: medicineReminderTimes,
+        allowedApps: nextAllowedApps,
+      },
+      update: {
+        volume: dto.volume,
+        brightness: dto.brightness,
+        medicineReminder: medicineReminderTimes,
+        allowedApps: nextAllowedApps,
+      },
+    });
+
+    const payload = {
+      elderId: elderMembership.userId,
+      deviceId: device.id,
+      volume: saved.volume,
+      brightness: saved.brightness,
+      medicineReminderTimes,
+      medicineReminderEnabled: medicineReminderTimes.length > 0,
+      allowedApps: nextAllowedApps,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (socketId) {
+      this.signalingGateway.server.to(socketId).emit('sync_config', payload);
+    }
+
+    return {
+      success: true,
+      data: {
+        ...payload,
+        online: Boolean(socketId),
+        pushed: Boolean(socketId),
+      },
+    };
+  }
 
   async getFamilyMembers(userId: string, role: UserRole) {
     if (role === UserRole.GUARDIAN) {
-      // 守护端：查找自己绑定的老人
       const myFamilies = await this.prisma.familyMember.findMany({
         where: { userId, role: 'GUARDIAN' },
         select: { familyId: true },
@@ -40,7 +195,6 @@ export class FamilyService {
     }
 
     if (role === UserRole.ELDER) {
-      // 老人端：找到自己所在的 Family，再查所有守护端成员
       const elderMembership = await this.prisma.familyMember.findFirst({
         where: { userId, role: 'ELDER' },
         select: { familyId: true },
@@ -181,7 +335,6 @@ export class FamilyService {
   }
 
   async getDashboard(userId: string) {
-    // 查守护端所在的所有 family
     const myFamilies = await this.prisma.familyMember.findMany({
       where: { userId, role: 'GUARDIAN' },
       select: { familyId: true },
@@ -190,27 +343,45 @@ export class FamilyService {
     const familyIds = myFamilies.map((f) => f.familyId);
     if (familyIds.length === 0) return { devices: [], stats: { total: 0, online: 0 } };
 
-    // 查每个 family 下的老人设备
-    const devices = await this.prisma.elderDevice.findMany({
-      where: { familyId: { in: familyIds } },
-      select: {
-        id: true,
-        deviceUuid: true,
-        nickname: true,
-        battery: true,
-        lastOnline: true,
-        familyId: true,
-      },
-    });
+    const [devices, elderMembers] = await Promise.all([
+      this.prisma.elderDevice.findMany({
+        where: { familyId: { in: familyIds } },
+        select: {
+          id: true,
+          deviceUuid: true,
+          nickname: true,
+          battery: true,
+          lastOnline: true,
+          familyId: true,
+        },
+      }),
+      this.prisma.familyMember.findMany({
+        where: { familyId: { in: familyIds }, role: 'ELDER' },
+        include: {
+          user: { select: { id: true, name: true, phone: true, deviceId: true } },
+        },
+      }),
+    ]);
 
-    // 从 Redis 读取实时在线状态
+    const elderByFamilyId = new Map(
+      elderMembers.map((member) => [member.familyId, member]),
+    );
+
     const enriched = await Promise.all(
       devices.map(async (device) => {
         const status = await this.redisService.hgetall(`device_status:${device.deviceUuid}`);
-        const isOnline = !!status?.socketId;
+        const socketId = status?.socketId?.trim?.() || null;
+        const isOnline = !!socketId;
+        const elderMember = elderByFamilyId.get(device.familyId || '');
+
         return {
           ...device,
+          deviceId: device.deviceUuid,
+          elderId: elderMember?.userId || null,
+          elderName: elderMember?.user?.name || device.nickname || '老人',
           online: isOnline,
+          isCallable: isOnline,
+          socketId,
           battery: status?.battery ? Number(status.battery) : device.battery,
           status: status?.status || 'OFFLINE',
         };
