@@ -7,9 +7,10 @@ import { AuthModule } from './auth/auth.module';
 import { DeviceModule } from './device/device.module';
 import { FamilyModule } from './family/family.module';
 import { SignalingModule } from './signaling/signaling.module';
+import { LocationModule } from './location/location.module';
 
 @Module({
-  imports: [CommonModule, UserModule, AuthModule, DeviceModule, FamilyModule, SignalingModule],
+  imports: [CommonModule, UserModule, AuthModule, DeviceModule, FamilyModule, SignalingModule, LocationModule],
   controllers: [AppController],
   providers: [AppService],
 })

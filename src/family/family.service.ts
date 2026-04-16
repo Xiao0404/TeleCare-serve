@@ -71,6 +71,45 @@ export class FamilyService {
       .filter(Boolean);
   }
 
+  private clampPercent(value: unknown, fallback = 50) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return fallback;
+    }
+
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  private buildRemoteConfigPayload(config: {
+    elderId: string;
+    deviceId: string;
+    volume?: number | null;
+    ringVolume?: number | null;
+    notificationVolume?: number | null;
+    alarmVolume?: number | null;
+    brightness?: number | null;
+    muted?: boolean | null;
+    medicineReminderTimes?: string[];
+    allowedApps?: string[];
+    updatedAt?: string;
+  }) {
+    const medicineReminderTimes = this.normalizeReminderTimes(config.medicineReminderTimes);
+
+    return {
+      elderId: config.elderId,
+      deviceId: config.deviceId,
+      volume: this.clampPercent(config.volume, 50),
+      ringVolume: this.clampPercent(config.ringVolume, 50),
+      notificationVolume: this.clampPercent(config.notificationVolume, 50),
+      alarmVolume: this.clampPercent(config.alarmVolume, 50),
+      brightness: this.clampPercent(config.brightness, 50),
+      muted: Boolean(config.muted),
+      medicineReminderTimes,
+      medicineReminderEnabled: medicineReminderTimes.length > 0,
+      allowedApps: this.normalizeReminderTimes(config.allowedApps),
+      updatedAt: config.updatedAt || new Date().toISOString(),
+    };
+  }
+
   async getRemoteConfig(
     requester: { userId: string; role: UserRole },
     query: GetRemoteConfigDto,
@@ -86,6 +125,60 @@ export class FamilyService {
 
     const reminderTimes = this.normalizeReminderTimes(device.config?.medicineReminder);
     const allowedApps = this.normalizeReminderTimes(device.config?.allowedApps);
+    const savedPayload = this.buildRemoteConfigPayload({
+      elderId: elderMembership.userId,
+      deviceId: device.id,
+      volume: device.config?.volume,
+      ringVolume: (device.config as any)?.ringVolume,
+      notificationVolume: (device.config as any)?.notificationVolume,
+      alarmVolume: (device.config as any)?.alarmVolume,
+      brightness: device.config?.brightness,
+      muted: (device.config as any)?.muted,
+      medicineReminderTimes: reminderTimes,
+      allowedApps,
+    });
+    let livePayload: typeof savedPayload | null = null;
+
+    if (socketId) {
+      const liveConfig = await this.signalingGateway.requestCurrentRemoteConfig(socketId, 2500);
+      if (liveConfig) {
+        livePayload = this.buildRemoteConfigPayload({
+          elderId: elderMembership.userId,
+          deviceId: device.id,
+          volume: liveConfig.volume,
+          ringVolume: liveConfig.ringVolume,
+          notificationVolume: liveConfig.notificationVolume,
+          alarmVolume: liveConfig.alarmVolume,
+          brightness: liveConfig.brightness,
+          muted: liveConfig.muted,
+          medicineReminderTimes: reminderTimes,
+          allowedApps,
+        });
+
+        await this.prisma.remoteConfig.upsert({
+          where: { deviceId: device.id },
+          create: {
+            deviceId: device.id,
+            volume: livePayload.volume,
+            ringVolume: livePayload.ringVolume,
+            notificationVolume: livePayload.notificationVolume,
+            alarmVolume: livePayload.alarmVolume,
+            brightness: livePayload.brightness,
+            muted: livePayload.muted,
+            medicineReminder: reminderTimes,
+            allowedApps,
+          },
+          update: {
+            volume: livePayload.volume,
+            ringVolume: livePayload.ringVolume,
+            notificationVolume: livePayload.notificationVolume,
+            alarmVolume: livePayload.alarmVolume,
+            brightness: livePayload.brightness,
+            muted: livePayload.muted,
+          },
+        });
+      }
+    }
 
     return {
       success: true,
@@ -95,13 +188,7 @@ export class FamilyService {
         deviceId: device.id,
         deviceUuid: device.deviceUuid,
         online: Boolean(socketId),
-        config: {
-          volume: device.config?.volume ?? 50,
-          brightness: device.config?.brightness ?? 50,
-          medicineReminderTimes: reminderTimes,
-          medicineReminderEnabled: reminderTimes.length > 0,
-          allowedApps,
-        },
+        config: livePayload || savedPayload,
       },
     };
   }
@@ -130,28 +217,39 @@ export class FamilyService {
       create: {
         deviceId: device.id,
         volume: dto.volume,
+        ringVolume: dto.ringVolume ?? 50,
+        notificationVolume: dto.notificationVolume ?? 50,
+        alarmVolume: dto.alarmVolume ?? 50,
         brightness: dto.brightness,
+        muted: Boolean(dto.muted),
         medicineReminder: medicineReminderTimes,
         allowedApps: nextAllowedApps,
       },
       update: {
         volume: dto.volume,
+        ringVolume: dto.ringVolume ?? 50,
+        notificationVolume: dto.notificationVolume ?? 50,
+        alarmVolume: dto.alarmVolume ?? 50,
         brightness: dto.brightness,
+        muted: Boolean(dto.muted),
         medicineReminder: medicineReminderTimes,
         allowedApps: nextAllowedApps,
       },
     });
 
-    const payload = {
+    const payload = this.buildRemoteConfigPayload({
       elderId: elderMembership.userId,
       deviceId: device.id,
       volume: saved.volume,
+      ringVolume: (saved as any).ringVolume,
+      notificationVolume: (saved as any).notificationVolume,
+      alarmVolume: (saved as any).alarmVolume,
       brightness: saved.brightness,
+      muted: (saved as any).muted,
       medicineReminderTimes,
-      medicineReminderEnabled: medicineReminderTimes.length > 0,
       allowedApps: nextAllowedApps,
       updatedAt: new Date().toISOString(),
-    };
+    });
 
     if (socketId) {
       this.signalingGateway.server.to(socketId).emit('sync_config', payload);

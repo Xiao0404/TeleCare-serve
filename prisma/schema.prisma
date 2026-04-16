@@ -33,9 +33,10 @@ model ElderDevice {
   lastOnline  DateTime       @default(now())
   createdAt   DateTime       @default(now())
   
-  family      Family?        @relation(fields: [familyId], references: [id])
+  family      Family?          @relation(fields: [familyId], references: [id])
   locations   LocationTrack[]
   config      RemoteConfig?
+  geofence    LocationGeofence?
 }
 
 // 家庭域表 (核心业务边界)
@@ -59,12 +60,27 @@ model FamilyMember {
 
 // 历史轨迹表
 model LocationTrack {
-  id        String         @id @default(uuid())
+  id        String      @id @default(uuid())
   deviceId  String
   lat       Float
   lng       Float
-  timestamp DateTime       @default(now())
-  device    ElderDevice    @relation(fields: [deviceId], references: [id])
+  accuracy  Float?
+  source    String?
+  timestamp DateTime    @default(now())
+  device    ElderDevice @relation(fields: [deviceId], references: [id])
+}
+
+model LocationGeofence {
+  id           String      @id @default(uuid())
+  deviceId      String      @unique
+  name          String      @default("默认电子围栏")
+  centerLat     Float
+  centerLng     Float
+  radiusMeters  Float
+  enabled       Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  device        ElderDevice @relation(fields: [deviceId], references: [id])
 }
 
 // 远程配置表
@@ -72,7 +88,11 @@ model RemoteConfig {
   id               String      @id @default(uuid())
   deviceId         String      @unique
   volume           Int         @default(50)
+  ringVolume       Int         @default(50)
+  notificationVolume Int       @default(50)
+  alarmVolume      Int         @default(50)
   brightness       Int         @default(50)
+  muted            Boolean     @default(false)
   medicineReminder Json?       // 格式: [{"time": "08:00", "text": "吃降压药"}]
   allowedApps      Json?       // 格式: ["com.tencent.mm", "com.android.phone"]
   device           ElderDevice @relation(fields: [deviceId], references: [id])
