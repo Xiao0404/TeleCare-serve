@@ -45,6 +45,7 @@ model Family {
   createdAt DateTime       @default(now())
   members   FamilyMember[]
   devices   ElderDevice[]
+  blacklist CallBlacklist[]
 }
 
 // 守护者与家庭的关联表 (多对多)
@@ -96,4 +97,17 @@ model RemoteConfig {
   medicineReminder Json?       // 格式: [{"time": "08:00", "text": "吃降压药"}]
   allowedApps      Json?       // 格式: ["com.tencent.mm", "com.android.phone"]
   device           ElderDevice @relation(fields: [deviceId], references: [id])
+}
+
+model CallBlacklist {
+  id          String   @id @default(uuid())
+  familyId    String
+  phoneNumber String
+  source      String   @default("guardian") // "guardian" | "public"
+  note        String?
+  createdAt   DateTime @default(now())
+  family      Family   @relation(fields: [familyId], references: [id])
+
+  @@unique([familyId, phoneNumber])
+  @@index([familyId])
 }
