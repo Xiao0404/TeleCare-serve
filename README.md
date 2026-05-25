@@ -23,13 +23,78 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+TeleCare 服务端，负责认证、家庭绑定、位置/电子围栏、远程设置，以及远程协助的 Socket 信令转发。
 
 ## Project setup
 
 ```bash
 $ npm install
 ```
+
+## Environment
+
+在项目根目录创建或维护 `.env`：
+
+```env
+DATABASE_URL="mysql://root:123456@localhost:3306/care_db"
+REDIS_URL="redis://localhost:6379"
+JWT_SECRET="123456"
+PORT=3500
+AMAP_WEB_API_KEY="你的高德 Web 服务 key"
+TURN_PUBLIC_HOST="159.75.70.82"
+TURN_EXTERNAL_IP="159.75.70.82"
+WEBRTC_TURN_USERNAME="telecare"
+WEBRTC_TURN_CREDENTIAL="replace-with-your-turn-password"
+```
+
+## WebRTC / TURN
+
+远程协助的视频流现在支持从服务端动态下发 `iceServers`。如果不配置，客户端会退回到默认 STUN：
+
+```env
+WEBRTC_STUN_URLS="stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+WEBRTC_TURN_URLS="turn:your-turn-host:3478?transport=udp,turn:your-turn-host:3478?transport=tcp"
+WEBRTC_TURN_USERNAME="telecare"
+WEBRTC_TURN_CREDENTIAL="replace-with-your-turn-password"
+```
+
+如果直接使用腾讯云公网 IP 做第一轮异地真机测试，`your-turn-host` 就填服务器公网 IP，例如 `159.75.70.82`。
+
+也可以直接使用 JSON：
+
+```env
+WEBRTC_ICE_SERVERS_JSON=[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:your-turn-host:3478?transport=udp"],"username":"telecare","credential":"replace-with-your-turn-password"}]
+```
+
+调试时可以通过下面的接口确认服务端实际下发内容：
+
+```bash
+GET /api/signaling/webrtc-config
+```
+
+如果远程协助出现以下现象，优先检查 TURN：
+
+- 守护端能收到 `ontrack`，但 `Frames received: 0`
+- 双端最终进入 `iceConnectionState: failed`
+- 指令偶尔能通，但实时画面黑屏
+
+本地开发如果要快速验证 TURN，可以先起一个 `coturn` 服务，再把上面的 `WEBRTC_TURN_*` 环境变量指向它。一个常见做法是直接运行官方 Docker 镜像：
+
+```bash
+docker run -d --name telecare-coturn \
+  -p 3478:3478 \
+  -p 3478:3478/udp \
+  -p 5349:5349 \
+  -p 5349:5349/udp \
+  coturn/coturn \
+  -n --log-file=stdout \
+  --lt-cred-mech \
+  --fingerprint \
+  --realm=telecare.local \
+  --user=telecare:replace-with-your-turn-password
+```
+
+完成后把 `.env` 中的 `WEBRTC_TURN_URLS / WEBRTC_TURN_USERNAME / WEBRTC_TURN_CREDENTIAL` 填好，重启服务端即可。
 
 ## Compile and run the project
 

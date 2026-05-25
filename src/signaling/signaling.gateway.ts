@@ -238,7 +238,7 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     await this.redisService.hset(key, 'battery', battery ?? 0);
     await this.redisService.hset(key, 'status', 'IDLE');
     await this.redisService.hset(key, 'netType', netType ?? '');
-    await this.redisService.expire(key, 60);
+    await this.redisService.expire(key, 120);
 
     const membership = await this.prisma.familyMember.findFirst({
       where: { userId: client.userId, role: 'ELDER' },

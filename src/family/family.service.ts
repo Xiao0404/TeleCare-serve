@@ -441,29 +441,36 @@ export class FamilyService {
     const familyIds = myFamilies.map((f) => f.familyId);
     if (familyIds.length === 0) return { devices: [], stats: { total: 0, online: 0 } };
 
-    const [devices, elderMembers] = await Promise.all([
-      this.prisma.elderDevice.findMany({
-        where: { familyId: { in: familyIds } },
-        select: {
-          id: true,
-          deviceUuid: true,
-          nickname: true,
-          battery: true,
-          lastOnline: true,
-          familyId: true,
-        },
-      }),
-      this.prisma.familyMember.findMany({
-        where: { familyId: { in: familyIds }, role: 'ELDER' },
-        include: {
-          user: { select: { id: true, name: true, phone: true, deviceId: true } },
-        },
-      }),
-    ]);
+    const elderMembers = await this.prisma.familyMember.findMany({
+      where: { familyId: { in: familyIds }, role: 'ELDER' },
+      include: {
+        user: { select: { id: true, name: true, phone: true, deviceId: true } },
+      },
+    });
 
     const elderByFamilyId = new Map(
       elderMembers.map((member) => [member.familyId, member]),
     );
+
+    // 每个 family 只取最近活跃的那台设备（同一账号同一时间只登录一台）
+    const latestDevices = await Promise.all(
+      familyIds.map((familyId) =>
+        this.prisma.elderDevice.findFirst({
+          where: { familyId },
+          orderBy: { lastOnline: 'desc' },
+          select: {
+            id: true,
+            deviceUuid: true,
+            nickname: true,
+            battery: true,
+            lastOnline: true,
+            familyId: true,
+          },
+        }),
+      ),
+    );
+
+    const devices = latestDevices.filter((d): d is NonNullable<typeof d> => d !== null);
 
     const enriched = await Promise.all(
       devices.map(async (device) => {
