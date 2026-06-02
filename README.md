@@ -124,16 +124,155 @@ $ npm run test:cov
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Tencent Cloud Docker 部署
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+当前仓库已经按 Docker Compose 方式整理好，适合直接上传到腾讯云 CVM 后部署。
+
+注意：
+
+- `nest-api` 容器启动时会先执行 `npx prisma db push`，用于首次建表和后续非破坏性同步。
+- `mysql-db` 和 `redis-cache` 只在 Docker 内部网络暴露，不再默认映射到宿主机公网。
+- 如果服务器公网 IP 不是 `159.75.70.82`，记得同步修改客户端里的 `src/config/network.ts`。
+
+#### 1. 服务器准备
+
+推荐系统：Ubuntu 22.04 LTS
+
+安装 Docker：
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+sudo apt update
+sudo apt install -y docker.io docker-compose-plugin
+sudo systemctl enable docker
+sudo systemctl start docker
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+可选：把当前用户加入 docker 组，避免每次都写 `sudo`。
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+#### 2. 上传项目
+
+把整个 `TeleCare-serve` 目录压缩后上传到服务器，例如放到：
+
+```bash
+/home/ubuntu/TeleCare-serve
+```
+
+解压后进入目录：
+
+```bash
+cd /home/ubuntu/TeleCare-serve
+```
+
+#### 3. 修改生产环境变量
+
+编辑根目录 `.env`，至少确认这些值：
+
+```env
+NODE_ENV=production
+PORT=3500
+
+MYSQL_ROOT_PASSWORD=请改成强密码
+MYSQL_DATABASE=care_db
+DATABASE_URL="mysql://root:请改成强密码@mysql-db:3306/care_db"
+
+REDIS_URL="redis://redis-cache:6379"
+JWT_SECRET="请改成强随机字符串"
+
+TURN_PUBLIC_HOST="你的腾讯云公网IP"
+TURN_EXTERNAL_IP="你的腾讯云公网IP"
+TURN_RELAY_IP="172.30.0.10"
+
+WEBRTC_TURN_URLS="turn:你的腾讯云公网IP:3478?transport=udp,turn:你的腾讯云公网IP:3478?transport=tcp"
+WEBRTC_TURN_USERNAME="telecare"
+WEBRTC_TURN_CREDENTIAL="请改成强密码"
+```
+
+#### 4. 配置腾讯云安全组
+
+至少放通这些端口：
+
+- `3500/TCP`：后端 API / WebSocket
+- `3478/TCP`
+- `3478/UDP`
+- `49160-49200/UDP`：TURN 中继端口范围
+
+不建议放通：
+
+- `3306/TCP`
+- `6379/TCP`
+
+#### 5. 启动服务
+
+首次部署直接执行：
+
+```bash
+docker compose up -d --build
+```
+
+查看状态：
+
+```bash
+docker compose ps
+```
+
+查看后端日志：
+
+```bash
+docker compose logs -f nest-api
+```
+
+#### 6. 常用运维命令
+
+重建并重启：
+
+```bash
+docker compose up -d --build
+```
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+仅重启后端：
+
+```bash
+docker compose restart nest-api
+```
+
+查看数据卷：
+
+```bash
+docker volume ls
+```
+
+#### 7. 验证是否部署成功
+
+服务启动后可以检查：
+
+```bash
+curl http://你的公网IP:3500/api
+curl http://你的公网IP:3500/api/signaling/webrtc-config
+```
+
+如果 `nest-api` 容器反复重启，优先看：
+
+```bash
+docker compose logs --tail=200 nest-api
+docker compose logs --tail=200 mysql-db
+```
+
+常见原因：
+
+- `.env` 中的 `DATABASE_URL`、`JWT_SECRET`、TURN 配置没改
+- 腾讯云安全组没有放通 `3478` 和 `49160-49200/udp`
+- 客户端仍然指向旧的服务器 IP
 
 ## Resources
 

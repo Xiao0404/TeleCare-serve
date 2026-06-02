@@ -1,21 +1,17 @@
 services:
   # NestJS 后端 API & WebSocket 服务
   nest-api:
-    build: .
+    build:
+      context: .
+      args:
+        DATABASE_URL: ${DATABASE_URL}
     container_name: care_backend
     restart: always
+    env_file:
+      - .env
     ports:
-      - "3500:3500"
-    environment:
-      - NODE_ENV=production
-      - PORT=3500
-      - DATABASE_URL=mysql://root:care_pwd_2024@mysql-db:3306/care_db
-      - REDIS_URL=redis://redis-cache:6379
-      - JWT_SECRET=your_super_secret_key_for_jwt
-      - WEBRTC_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
-      - WEBRTC_TURN_URLS=turn:${TURN_PUBLIC_HOST:-159.75.70.82}:3478?transport=udp,turn:${TURN_PUBLIC_HOST:-159.75.70.82}:3478?transport=tcp
-      - WEBRTC_TURN_USERNAME=${WEBRTC_TURN_USERNAME:-telecare}
-      - WEBRTC_TURN_CREDENTIAL=${WEBRTC_TURN_CREDENTIAL:-telecare_turn_2026}
+      - "${PORT}:${PORT}"
+    command: sh -c "npx prisma db push && node dist/src/main.js"
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -29,11 +25,11 @@ services:
     image: mysql:8.0
     container_name: care_mysql
     restart: always
-    ports:
-      - "3306:3306"
+    expose:
+      - "${MYSQL_PORT}"
     environment:
-      MYSQL_ROOT_PASSWORD: care_pwd_2024
-      MYSQL_DATABASE: care_db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -47,8 +43,8 @@ services:
     image: redis:alpine
     container_name: care_redis
     restart: always
-    ports:
-      - "6379:6379"
+    expose:
+      - "${REDIS_PORT}"
     volumes:
       - redis_data:/data
 
@@ -68,19 +64,19 @@ services:
       - --no-cli
       - --no-multicast-peers
       - --listening-ip=0.0.0.0
-      - --listening-port=3478
-      - --relay-ip=${TURN_RELAY_IP:-172.30.0.10}
-      - --min-port=49160
-      - --max-port=49200
-      - --user=${WEBRTC_TURN_USERNAME:-telecare}:${WEBRTC_TURN_CREDENTIAL:-telecare_turn_2026}
-      - --external-ip=${TURN_EXTERNAL_IP:-159.75.70.82}/${TURN_RELAY_IP:-172.30.0.10}
+      - --listening-port=${TURN_PORT}
+      - --relay-ip=${TURN_RELAY_IP}
+      - --min-port=${TURN_MIN_PORT}
+      - --max-port=${TURN_MAX_PORT}
+      - --user=${WEBRTC_TURN_USERNAME}:${WEBRTC_TURN_CREDENTIAL}
+      - --external-ip=${TURN_EXTERNAL_IP}/${TURN_RELAY_IP}
     ports:
-      - "3478:3478"
-      - "3478:3478/udp"
-      - "49160-49200:49160-49200/udp"
+      - "${TURN_PORT}:${TURN_PORT}"
+      - "${TURN_PORT}:${TURN_PORT}/udp"
+      - "${TURN_MIN_PORT}-${TURN_MAX_PORT}:${TURN_MIN_PORT}-${TURN_MAX_PORT}/udp"
     networks:
       turn_net:
-        ipv4_address: ${TURN_RELAY_IP:-172.30.0.10}
+        ipv4_address: ${TURN_RELAY_IP}
 
 volumes:
   mysql_data:

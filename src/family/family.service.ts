@@ -137,48 +137,6 @@ export class FamilyService {
       medicineReminderTimes: reminderTimes,
       allowedApps,
     });
-    let livePayload: typeof savedPayload | null = null;
-
-    if (socketId) {
-      const liveConfig = await this.signalingGateway.requestCurrentRemoteConfig(socketId, 2500);
-      if (liveConfig) {
-        livePayload = this.buildRemoteConfigPayload({
-          elderId: elderMembership.userId,
-          deviceId: device.id,
-          volume: liveConfig.volume,
-          ringVolume: liveConfig.ringVolume,
-          notificationVolume: liveConfig.notificationVolume,
-          alarmVolume: liveConfig.alarmVolume,
-          brightness: liveConfig.brightness,
-          muted: liveConfig.muted,
-          medicineReminderTimes: reminderTimes,
-          allowedApps,
-        });
-
-        await this.prisma.remoteConfig.upsert({
-          where: { deviceId: device.id },
-          create: {
-            deviceId: device.id,
-            volume: livePayload.volume,
-            ringVolume: livePayload.ringVolume,
-            notificationVolume: livePayload.notificationVolume,
-            alarmVolume: livePayload.alarmVolume,
-            brightness: livePayload.brightness,
-            muted: livePayload.muted,
-            medicineReminder: reminderTimes,
-            allowedApps,
-          },
-          update: {
-            volume: livePayload.volume,
-            ringVolume: livePayload.ringVolume,
-            notificationVolume: livePayload.notificationVolume,
-            alarmVolume: livePayload.alarmVolume,
-            brightness: livePayload.brightness,
-            muted: livePayload.muted,
-          },
-        });
-      }
-    }
 
     return {
       success: true,
@@ -188,7 +146,7 @@ export class FamilyService {
         deviceId: device.id,
         deviceUuid: device.deviceUuid,
         online: Boolean(socketId),
-        config: livePayload || savedPayload,
+        config: savedPayload,
       },
     };
   }

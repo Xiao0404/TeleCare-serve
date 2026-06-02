@@ -450,12 +450,21 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
   @SubscribeMessage('webrtc_answer')
   handleAnswer(
     @ConnectedSocket() client: AuthSocket,
-    @MessageBody() data: { targetId: string; sessionId: string; sdp: unknown },
+    @MessageBody()
+    data: {
+      targetId: string;
+      sessionId: string;
+      sdp: unknown;
+      screenWidth?: number;
+      screenHeight?: number;
+    },
   ) {
     this.server.to(data.targetId).emit('webrtc_answer', {
       sessionId: data.sessionId,
       sdp: data.sdp,
       fromSocketId: client.id,
+      screenWidth: data.screenWidth,
+      screenHeight: data.screenHeight,
     });
   }
 
@@ -571,6 +580,8 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
       completedAt?: number;
       error?: string;
       detail?: string;
+      screenWidth?: number;
+      screenHeight?: number;
     },
   ) {
     const { targetSocketId, ...payload } = data;
@@ -605,6 +616,8 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
       frameData?: string;
       error?: string;
       detail?: string;
+      screenWidth?: number;
+      screenHeight?: number;
     },
   ) {
     this.logger.log(
